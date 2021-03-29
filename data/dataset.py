@@ -1,11 +1,13 @@
 import sys
 import torch.utils.data as data
 from os import listdir
-from utils.tools import default_loader, is_image_file, normalize
+from utils.tools import default_loader, is_image_file, normalize, transfer2tensor
 import os
 import numpy as np
 import torchvision.transforms as transforms
-
+from utils.tools import tif_loader
+import numpy as np
+import torch
 
 class Dataset(data.Dataset):
     def __init__(self, data_path, image_shape, with_subfolder=False, random_crop=True, return_name=False):
@@ -21,19 +23,27 @@ class Dataset(data.Dataset):
 
     def __getitem__(self, index):
         path = os.path.join(self.data_path, self.samples[index])
-        img = default_loader(path)
+        #img = default_loader(path)
+        img = tif_loader(path)
         #print('Test ', np.array(img).shape)
         if self.random_crop:
-            imgw, imgh = img.size
-            if imgh < self.image_shape[0] or imgw < self.image_shape[1]:
-                img = transforms.Resize(min(self.image_shape))(img)
-            img = transforms.RandomCrop(self.image_shape)(img)
+            # imgw, imgh = img.size
+            # if imgh < self.image_shape[0] or imgw < self.image_shape[1]:
+            #     img = transforms.Resize(min(self.image_shape))(img)
+            # img = transforms.RandomCrop(self.image_shape)(img)
+            h,w, _ = img.shape
+            targetH, targetW = self.image_shape[0], self.image_shape[1]
+            randomH = np.random.randint(0, h - targetH)
+            randomW = np.random.randint(0, w - targetW)
+            imgCrop = img[randomH:(randomH+targetH), randomW:(randomW+targetW),:]
+            imgCrop = np.transpose(imgCrop, [2,0,1])
         else:
             img = transforms.Resize(self.image_shape)(img)
             img = transforms.RandomCrop(self.image_shape)(img)
-
-        img = transforms.ToTensor()(img)  # turn the image to a tensor
-        img = normalize(img)
+        imgTensor = torch.from_numpy(imgCrop)
+        #img = transforms.ToTensor()(img)  # turn the image to a tensor
+        img = normalize(imgTensor)
+        #img = transfer2tensor(img)
 
         if self.return_name:
             return self.samples[index], img

@@ -3,7 +3,7 @@ import torch
 import yaml
 import numpy as np
 from PIL import Image
-
+from skimage import io
 import torch.nn.functional as F
 
 
@@ -13,9 +13,20 @@ def pil_loader(path):
         img = Image.open(f)
         return img.convert('RGB')
 
+def tif_loader(path):
+    aDiv = np.array(io.imread(path))
+    aDivMax = aDiv.max()
+    aDivMin = aDiv.min()
+    aDiv = (aDiv - aDivMin) / (aDivMax - aDivMin)
+    #aDiv = aDiv/aDivMax
+    h, w = aDiv.shape
+    aDiv = np.stack([aDiv, aDiv, aDiv], axis=2)
+    aDiv = np.asarray(aDiv, np.float32)
+    return aDiv
 
 def default_loader(path):
     return pil_loader(path)
+    #return tif_loader(path)
 
 
 def tensor_img_to_npimg(tensor_img):
@@ -34,7 +45,27 @@ def tensor_img_to_npimg(tensor_img):
 
 # Change the values of tensor x from range [0, 1] to [-1, 1]
 def normalize(x):
+    #return x.mul_(2).add_(-1)
     return x.mul_(2).add_(-1)
+
+def transfer2tensor(x):
+    '''
+    transfer the ndarray of tif into tensor
+    Args:
+        x:
+
+    Returns:
+
+    '''
+    x = np.asarray(x, dtype=np.float32)
+
+    x_norm = x/4294967295
+    x_tensor = torch.from_numpy(x_norm)
+    x_tensor = x_tensor.float()
+    #x_tensor = torch.tensor(x_tensor.clone().detach(), dtype=torch.float32)
+    return x_tensor.mul_(2).add_(-0.6)
+
+
 
 def same_padding(images, ksizes, strides, rates):
     assert len(images.size()) == 4
@@ -135,13 +166,15 @@ def random_bbox(config, batch_size):
         #t = np.random.randint(margin_height, maxt)
         #l = np.random.randint(margin_width, maxl)
         t = (img_height - h)//2  ## center mask
-        w = (img_width - w) //2
+        l = (img_width - w) //2
         bbox_list.append((t, l, h, w))
         bbox_list = bbox_list * batch_size
     else:
         for i in range(batch_size):
-            t = np.random.randint(margin_height, maxt)
-            l = np.random.randint(margin_width, maxl)
+            # t = np.random.randint(margin_height, maxt)
+            # l = np.random.randint(margin_width, maxl)
+            t = (img_height - h) // 2  ## center mask
+            l = (img_width - w) // 2
             bbox_list.append((t, l, h, w))
 
     return torch.tensor(bbox_list, dtype=torch.int64)
@@ -160,8 +193,10 @@ def bbox2mask(bboxes, height, width, max_delta_h, max_delta_w):
     mask = torch.zeros((batch_size, 1, height, width), dtype=torch.float32)
     for i in range(batch_size):
         bbox = bboxes[i]
-        delta_h = np.random.randint(max_delta_h // 2 + 1)
-        delta_w = np.random.randint(max_delta_w // 2 + 1)
+        #delta_h = np.random.randint(max_delta_h // 2 + 1)
+        #delta_w = np.random.randint(max_delta_w // 2 + 1)
+        delta_h = 0
+        delta_w = 0
         mask[i, :, bbox[0] + delta_h:bbox[0] + bbox[2] - delta_h, bbox[1] + delta_w:bbox[1] + bbox[3] - delta_w] = 1.
     return mask
 
@@ -193,6 +228,8 @@ def mask_image(x, bboxes, config):
         mask = mask.cuda()
 
     if config['mask_type'] == 'hole':
+        #print(x.shape)
+        #print('Mask ', mask.shape)
         result = x * (1. - mask)
     elif config['mask_type'] == 'mosaic':
         # TODO: Matching the mosaic patch size and the mask size
